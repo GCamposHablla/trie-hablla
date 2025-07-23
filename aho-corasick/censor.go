@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	// Pool de buffers para reduzir alocações
-	stringBuilderPool = sync.Pool{
+		stringBuilderPool = sync.Pool{
 		New: func() interface{} {
 			return &strings.Builder{}
 		},
@@ -22,10 +21,9 @@ var (
 type Censor struct {
 	matcher *ahocorasick.Matcher
 	words   []string
-	wordSet map[string]bool // Para lookup O(1)
+	wordSet map[string]bool 
 }
 
-// Carrega palavras do arquivo e constrói automato
 func NewCensor(path string) (*Censor, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -42,7 +40,7 @@ func NewCensor(path string) (*Censor, error) {
 		if raw == "" {
 			continue
 		}
-		if !wordSet[raw] { // Evita duplicatas
+		if !wordSet[raw] {
 			rawWords = append(rawWords, raw)
 			wordSet[raw] = true
 		}
@@ -52,7 +50,6 @@ func NewCensor(path string) (*Censor, error) {
 		return nil, fmt.Errorf("erro lendo lista: %w", err)
 	}
 
-	// Converte para [][]byte uma única vez
 	keywords := make([][]byte, len(rawWords))
 	for i, word := range rawWords {
 		keywords[i] = []byte(word)
@@ -67,7 +64,6 @@ func NewCensor(path string) (*Censor, error) {
 	}, nil
 }
 
-// Verifica e censura palavras encontradas - VERSÃO OTIMIZADA
 func (c *Censor) Filter(input string) (found bool, censored string) {
 	if input == "" {
 		return false, input
@@ -83,12 +79,10 @@ func (c *Censor) Filter(input string) (found bool, censored string) {
 	return true, c.optimizedCensor(input, hits)
 }
 
-// Nova função de censura otimizada
 func (c *Censor) optimizedCensor(original string, hits []int) string {
-	// Cria mapa de palavras encontradas para lookup O(1)
-	foundWords := make(map[string]bool, len(hits))
+	foundIndices := make(map[int]struct{}, len(hits))
 	for _, idx := range hits {
-		foundWords[c.words[idx]] = true
+		foundIndices[idx] = struct{}{}
 	}
 
 	result := stringBuilderPool.Get().(*strings.Builder)
@@ -96,18 +90,37 @@ func (c *Censor) optimizedCensor(original string, hits []int) string {
 	defer stringBuilderPool.Put(result)
 	result.Grow(len(original))
 
-	words := strings.Fields(original)
-	for i, word := range words {
-		if i > 0 {
-			result.WriteByte(' ')
+	start := 0
+	length := len(original)
+
+	for start < length {
+		for start < length && (original[start] == ' ' || original[start] == '\t' || original[start] == '\n') {
+			result.WriteByte(original[start])
+			start++
 		}
 
+		if start >= length {
+			break
+		}
+
+		end := start
+		for end < length && original[end] != ' ' && original[end] != '\t' && original[end] != '\n' {
+			end++
+		}
+
+		word := original[start:end]
+
 		normalizedWord := normalize(word)
-		if foundWords[normalizedWord] {
-			result.WriteString(strings.Repeat("*", len(word)))
+
+		if c.wordSet[normalizedWord] {
+			for i := 0; i < len(word); i++ {
+				result.WriteByte('*')
+			}
 		} else {
 			result.WriteString(word)
 		}
+
+		start = end
 	}
 
 	return result.String()

@@ -30,7 +30,6 @@ var (
 	}
 )
 
-// Versão otimizada da normalização
 func normalize(input string) string {
 	if input == "" {
 		return ""
@@ -40,28 +39,27 @@ func normalize(input string) string {
 	builder.Reset()
 	defer normBuilderPool.Put(builder)
 
-	// Pre-aloca capacidade estimada
 	builder.Grow(len(input))
 
-	// Normaliza NFD uma única vez
 	normalized := norm.NFD.String(input)
-	
+
+	var last rune
 	for _, r := range normalized {
-		// Skip diacríticos (acentos)
 		if unicode.Is(unicode.Mn, r) {
 			continue
 		}
-		
-		// Mapeia leet speak
 		if mapped, ok := leetMap[r]; ok {
 			r = mapped
 		}
-		
-		// Apenas letras e números, em lowercase
 		if unicode.IsLetter(r) || unicode.IsNumber(r) {
-			builder.WriteRune(unicode.ToLower(r))
+			r = unicode.ToLower(r)
+			if r != last {
+				builder.WriteRune(r)
+				last = r
+			}
+			// se igual, ignora → colapso de repetições
 		}
 	}
-	
+
 	return builder.String()
 }
